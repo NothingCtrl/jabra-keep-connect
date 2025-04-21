@@ -2,7 +2,7 @@
 
 A simple app to schedule the playing of a sound that prevents a Jabra device from going into standby mode (disconnecting).
 
-The 20 Hz tone should keep the headset active without impacting the audio experience.
+The 20 Hz or 20.000 Hz tone should keep the headset active without impacting the audio experience.
 
 ### Build app
 

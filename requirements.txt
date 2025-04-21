@@ -2,4 +2,5 @@ PyAudio==0.2.14
 numpy==2.0.2
 pystray==0.19.5
 pillow==11.2.1
+pywin32==310
 pyinstaller==6.13.0

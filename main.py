@@ -27,7 +27,7 @@ class KeepAliveApp:
         self.thread = None
         self.stop_event = threading.Event()
         self.intervals = [5, 30, 60, 300, 900, 1800, 3600]
-        self.selected_interval = tk.StringVar(value="1800")
+        self.selected_interval = tk.StringVar(value="900")
         self.tray_icon = None
         self.icon_path = None
         self.tray_thread = None
@@ -65,7 +65,7 @@ class KeepAliveApp:
 
     def generate_inaudible_tone(self):
         sample_rate = 44100
-        duration = 0.05
+        duration = 1
         frequency = 20000
         amplitude = 1000
         t = np.linspace(0, duration, int(sample_rate * duration), False)

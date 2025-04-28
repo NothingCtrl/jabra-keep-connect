@@ -47,6 +47,7 @@ class KeepAliveApp:
         self.double_click_interval = 0.5
         self.status_label_text = tk.StringVar(value="Idle.")
         self.inaudible_tone_data = self.generate_inaudible_tone()
+        self.beep_tone_data = self.generate_beep()
 
         # Frame for Interval Label and Combobox
         interval_frame = tk.Frame(root)
@@ -84,21 +85,64 @@ class KeepAliveApp:
         audio = amplitude * np.sin(2 * np.pi * frequency * t)
         return audio.astype(np.int16)
 
-    def play_audio(self, audio_data):
-        try:
+    def generate_beep(self, stereo: bool = True):
+        sample_rate = 44100
+        duration = 0.2  # Short duration for a quick beep
+        frequency = 1000  # Audible frequency (1 kHz)
+        amplitude = 600  # Moderate amplitude for a soft beep
+        t = np.linspace(0, duration, int(sample_rate * duration), False)
+        audio = amplitude * np.sin(2 * np.pi * frequency * t)
+        if stereo:
+            stereo = np.stack([audio, audio], axis=1)  # Duplicate for left/right channels
+            return stereo.astype(np.int16)
+        return audio.astype(np.int16)
+
+    def play_audio(self, audio_data, channels: int = 2):
             p = pyaudio.PyAudio()
-            stream = p.open(format=pyaudio.paInt16, channels=1, rate=44100, output=True)
-            stream.write(audio_data.tobytes())
-            stream.stop_stream()
-            stream.close()
-            p.terminate()
-        except Exception as e:
-            print(f"Error playing audio: {e}")
+            try:
+                # Check for available output devices
+                device_count = p.get_device_count()
+                output_device = []
+                for i in range(device_count):
+                    device_info = p.get_device_info_by_index(i)
+                    if device_info['maxOutputChannels'] > 0 and 'jabra' in device_info['name'].lower():  # Output device
+                        output_device.append(i)
+                if not output_device:
+                    print("No output device found. Waiting for device...")
+                    return False  # Signal to retry
+                # Open stream with the found device
+                is_ok = False
+                try:
+                    for d in output_device:
+                        stream = p.open(format=pyaudio.paInt16,
+                                        channels=channels,
+                                        rate=44100,
+                                        output=True,
+                                        output_device_index=d)
+                        stream.write(audio_data.tobytes())
+                        stream.stop_stream()
+                        stream.close()
+                        is_ok = True
+                        break
+                except Exception:
+                    pass
+                if is_ok:
+                    return True
+                else:
+                    print("Played beep failed")
+                    return False
+            except Exception as e:
+                print(f"Error playing audio: {e}")
+                return False
+            finally:
+                p.terminate()
 
     def playback_loop(self):
         interval = int(self.selected_interval.get())
         while self.is_running and not self.stop_event.is_set():
-            self.play_audio(self.inaudible_tone_data)
+            if not self.play_audio(self.inaudible_tone_data, channels=1):
+                self.stop_event.wait(timeout=5)  # Wait 5 seconds before retry
+                continue
             for remaining_time in range(interval, -1, -1):
                 self.status_label_text.set(f"Next playback in {remaining_time} seconds.")
                 if self.stop_event.is_set():

@@ -2,6 +2,7 @@ import sys
 import time
 import numpy as np
 import pyaudio
+
 try:
     import tkinter as tk
     from tkinter import ttk
@@ -17,12 +18,23 @@ import tempfile
 import win32gui
 import win32con
 
+
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base_path, relative_path)
+
+
 class KeepAliveApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Bluetooth Keep Alive")
+        self.root.title("Jabra Keep Connect")
         self.root.geometry("300x160")  # Increased height to accommodate status label
         self.root.resizable(False, False)
+        try:
+            self.root.iconbitmap(resource_path("resources/icon.ico"))
+        except tk.TclError as e:
+            print(f"Error loading icon: {e}")
         self.is_running = False
         self.thread = None
         self.stop_event = threading.Event()
@@ -65,7 +77,7 @@ class KeepAliveApp:
 
     def generate_inaudible_tone(self):
         sample_rate = 44100
-        duration = 1
+        duration = 3
         frequency = 20000
         amplitude = 1000
         t = np.linspace(0, duration, int(sample_rate * duration), False)
@@ -131,7 +143,8 @@ class KeepAliveApp:
         with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_file:
             image.save(temp_file, format='PNG')
             self.icon_path = temp_file.name
-        icon = pystray.Icon("Bluetooth Keep Alive", Image.open(self.icon_path), "Bluetooth Keep Alive", self.create_menu(), on_click=self._on_tray_click)
+        icon = pystray.Icon("Bluetooth Keep Alive", Image.open(self.icon_path), "Bluetooth Keep Alive",
+                            self.create_menu(), on_click=self._on_tray_click)
         return icon
 
     def create_menu(self):
@@ -215,6 +228,7 @@ class KeepAliveApp:
 
     def on_closing(self):
         self._quit_app()
+
 
 if __name__ == "__main__":
     root = tk.Tk()

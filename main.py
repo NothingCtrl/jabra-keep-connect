@@ -2,6 +2,8 @@ import sys
 import time
 import numpy as np
 import pyaudio
+from pycaw.pycaw import AudioUtilities
+from comtypes import CoInitialize, CoUninitialize
 
 try:
     import tkinter as tk
@@ -18,11 +20,24 @@ import tempfile
 import win32gui
 import win32con
 
+audio_sessions = None
+
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
     base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base_path, relative_path)
+
+
+def refresh_audio_session():
+    def _refresh():
+        global audio_sessions
+        while True:
+            CoInitialize()
+            audio_sessions = AudioUtilities.GetAllSessions()
+            time.sleep(60)
+
+    threading.Thread(target=_refresh, daemon=True).start()
 
 
 class KeepAliveApp:
@@ -38,8 +53,8 @@ class KeepAliveApp:
         self.is_running = False
         self.thread = None
         self.stop_event = threading.Event()
-        self.intervals = [5, 30, 60, 300, 900, 1800, 3600]
-        self.selected_interval = tk.StringVar(value="900")
+        self.intervals = [5, 30, 60, 300, 600, 900, 1800, 3600]
+        self.selected_interval = tk.StringVar(value="600")
         self.tray_icon = None
         self.icon_path = None
         self.tray_thread = None
@@ -48,6 +63,7 @@ class KeepAliveApp:
         self.status_label_text = tk.StringVar(value="Idle.")
         self.inaudible_tone_data = self.generate_inaudible_tone()
         self.beep_tone_data = self.generate_beep()
+        self.ting_tong_data = self.generate_ting_tong()
 
         # Frame for Interval Label and Combobox
         interval_frame = tk.Frame(root)
@@ -76,80 +92,110 @@ class KeepAliveApp:
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
+    def is_any_audio_playing_pycaw(self):
+        """Check any sound is playing in the system. Only on Windows"""
+        if audio_sessions:
+            # noinspection PyTypeChecker
+            for session in audio_sessions:
+                try:
+                    if session.State == 1:  # State 1 is "Active"
+                        return True
+                except Exception as e:
+                    continue
+        return False
+
+    def generate_tone(self, frequency, duration, sample_rate, amplitude, stereo: bool = False):
+        num_samples = int(sample_rate * duration)
+        t = np.linspace(0, duration, num_samples, False)
+        note = amplitude * np.sin(2 * np.pi * frequency * t)
+        if not stereo:
+            return (note * 32767).astype(np.int16).tobytes()
+        else:
+            stereo = np.stack([note * 32767, note * 32767], axis=1)  # Duplicate for left/right channels
+            return stereo.astype(np.int16).tobytes()
+
     def generate_inaudible_tone(self):
         sample_rate = 44100
         duration = 3
         frequency = 20000
         amplitude = 1000
-        t = np.linspace(0, duration, int(sample_rate * duration), False)
-        audio = amplitude * np.sin(2 * np.pi * frequency * t)
-        return audio.astype(np.int16)
+        return self.generate_tone(frequency, duration, sample_rate, amplitude)
 
     def generate_beep(self, stereo: bool = True):
         sample_rate = 44100
         duration = 0.2  # Short duration for a quick beep
         frequency = 1000  # Audible frequency (1 kHz)
         amplitude = 600  # Moderate amplitude for a soft beep
-        t = np.linspace(0, duration, int(sample_rate * duration), False)
-        audio = amplitude * np.sin(2 * np.pi * frequency * t)
-        if stereo:
-            stereo = np.stack([audio, audio], axis=1)  # Duplicate for left/right channels
-            return stereo.astype(np.int16)
-        return audio.astype(np.int16)
+        return self.generate_tone(frequency, duration, sample_rate, amplitude, stereo)
 
-    def play_audio(self, audio_data, channels: int = 2):
-            p = pyaudio.PyAudio()
+    def generate_ting_tong(self):
+        # Tạo dữ liệu âm thanh cho một tiếng "ting"
+        ting_data = self.generate_tone(100, 0.15, 44100, 0.15)
+        tong_data = self.generate_tone(150, 0.15, 44100, 0.15)
+        # Tạo khoảng lặng
+        num_silence_samples = int(44100 * .3)
+        silence = np.zeros(num_silence_samples, dtype=np.int16).tobytes()
+        # Kết hợp hai tiếng "ting" với khoảng lặng ở giữa
+        audio_data = silence + ting_data + silence + tong_data + silence + ting_data + silence + tong_data + silence
+        return audio_data
+
+    def play_audio(self, audio_data: bytes, channels: int = 2):
+        p = pyaudio.PyAudio()
+        try:
+            # Check for available output devices
+            device_count = p.get_device_count()
+            output_device = []
+            for i in range(device_count):
+                device_info = p.get_device_info_by_index(i)
+                if device_info['maxOutputChannels'] > 0 and 'jabra' in device_info['name'].lower():  # Output device
+                    output_device.append(i)
+            if not output_device:
+                print("No output device found. Waiting for device...")
+                return False  # Signal to retry
+            # Open stream with the found device
+            is_ok = False
             try:
-                # Check for available output devices
-                device_count = p.get_device_count()
-                output_device = []
-                for i in range(device_count):
-                    device_info = p.get_device_info_by_index(i)
-                    if device_info['maxOutputChannels'] > 0 and 'jabra' in device_info['name'].lower():  # Output device
-                        output_device.append(i)
-                if not output_device:
-                    print("No output device found. Waiting for device...")
-                    return False  # Signal to retry
-                # Open stream with the found device
-                is_ok = False
-                try:
-                    for d in output_device:
-                        stream = p.open(format=pyaudio.paInt16,
-                                        channels=channels,
-                                        rate=44100,
-                                        output=True,
-                                        output_device_index=d)
-                        stream.write(audio_data.tobytes())
-                        stream.stop_stream()
-                        stream.close()
-                        is_ok = True
-                        break
-                except Exception:
-                    pass
-                if is_ok:
-                    return True
-                else:
-                    print("Played beep failed")
-                    return False
-            except Exception as e:
-                print(f"Error playing audio: {e}")
+                for d in output_device:
+                    stream = p.open(format=pyaudio.paInt16,
+                                    channels=channels,
+                                    rate=44100,
+                                    output=True,
+                                    output_device_index=d)
+                    stream.write(audio_data)
+                    stream.stop_stream()
+                    stream.close()
+                    is_ok = True
+                    break
+            except Exception:
+                pass
+            if is_ok:
+                return True
+            else:
                 return False
-            finally:
-                p.terminate()
+        except Exception as e:
+            print(f"Error playing audio: {e}")
+            return False
+        finally:
+            p.terminate()
 
     def playback_loop(self):
         interval = int(self.selected_interval.get())
         while self.is_running and not self.stop_event.is_set():
-            if not self.play_audio(self.inaudible_tone_data, channels=1):
-                self.stop_event.wait(timeout=5)  # Wait 5 seconds before retry
-                continue
+            if not self.is_any_audio_playing_pycaw():
+                if not self.play_audio(self.ting_tong_data, channels=1):
+                    self.stop_event.wait(timeout=5)  # Wait 5 seconds before retry
+                    continue
             for remaining_time in range(interval, -1, -1):
                 self.status_label_text.set(f"Next playback in {remaining_time} seconds.")
                 if self.stop_event.is_set():
                     break
                 time.sleep(1)
             if not self.stop_event.is_set():
-                self.status_label_text.set("Playing sound...")
+                if not self.is_any_audio_playing_pycaw():
+                    self.status_label_text.set("Playing sound...")
+                else:
+                    self.status_label_text.set("Audio is playing...")
+                    time.sleep(1)
             else:
                 self.status_label_text.set("Playback stopped.")
 
@@ -275,6 +321,7 @@ class KeepAliveApp:
 
 
 if __name__ == "__main__":
+    refresh_audio_session()
     root = tk.Tk()
     app = KeepAliveApp(root)
     root.mainloop()

@@ -1,11 +1,17 @@
 # Jabra Wireless Headsets Keep Connect (or Keep Alive)
 
-A simple app to schedule the playing of a sound that prevents a Jabra device from going into standby mode (disconnecting).
+**Windows OS** only!!!
 
-The 20 Hz or 20.000 Hz tone should keep the headset active without impacting the audio experience.
+A simple app to schedule the playing of a sound that prevents a Jabra device from going into standby mode (disconnecting).
 
 ### Build app
 
 ```bash
+# simple build without any resources
 pyinstaller --noconsole --onefile main.py
+```
+
+```
+# build with resources
+pyinstaller --onefile --noconsole --name JabraKC --icon resources\icon.ico --add-data "resources\\icon.ico;resources" main.py
 ```

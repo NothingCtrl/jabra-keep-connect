@@ -53,7 +53,7 @@ class KeepAliveApp:
         self.is_running = False
         self.thread = None
         self.stop_event = threading.Event()
-        self.intervals = [5, 30, 60, 300, 600, 900, 1800, 3600]
+        self.intervals = [15, 300, 600, 900, 1200, 1500, 1800, 2700, 3600]
         self.selected_interval = tk.StringVar(value="600")
         self.tray_icon = None
         self.icon_path = None

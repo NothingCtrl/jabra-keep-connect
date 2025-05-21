@@ -54,7 +54,7 @@ class KeepAliveApp:
         self.thread = None
         self.stop_event = threading.Event()
         self.intervals = [15, 300, 600, 900, 1200, 1500, 1800, 2700, 3600]
-        self.selected_interval = tk.StringVar(value="600")
+        self.selected_interval = tk.StringVar(value="1500")
         self.tray_icon = None
         self.icon_path = None
         self.tray_thread = None
@@ -233,7 +233,7 @@ class KeepAliveApp:
         with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_file:
             image.save(temp_file, format='PNG')
             self.icon_path = temp_file.name
-        icon = pystray.Icon("Bluetooth Keep Alive", Image.open(self.icon_path), "Bluetooth Keep Alive",
+        icon = pystray.Icon("Jabra Keep Connect", Image.open(self.icon_path), "Jabra Keep Connect",
                             self.create_menu(), on_click=self._on_tray_click)
         return icon
 

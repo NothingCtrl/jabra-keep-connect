@@ -13,5 +13,5 @@ pyinstaller --noconsole --onefile main.py
 
 ```
 # build with resources
-pyinstaller --onefile --noconsole --name JabraKC --icon resources\icon.ico --add-data "resources\\icon.ico;resources" main.py
+pyinstaller --onefile --noconsole --name jabra-keep-connect --icon resources\icon.ico --add-data "resources\\icon.ico;resources" main.py
 ```

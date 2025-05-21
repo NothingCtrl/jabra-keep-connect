@@ -20,24 +20,11 @@ import tempfile
 import win32gui
 import win32con
 
-audio_sessions = None
-
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
     base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base_path, relative_path)
-
-
-def refresh_audio_session():
-    def _refresh():
-        global audio_sessions
-        while True:
-            CoInitialize()
-            audio_sessions = AudioUtilities.GetAllSessions()
-            time.sleep(60)
-
-    threading.Thread(target=_refresh, daemon=True).start()
 
 
 class KeepAliveApp:
@@ -53,7 +40,7 @@ class KeepAliveApp:
         self.is_running = False
         self.thread = None
         self.stop_event = threading.Event()
-        self.intervals = [15, 300, 600, 900, 1200, 1500, 1800, 2700, 3600]
+        self.intervals = [300, 600, 900, 1200, 1500, 1800]
         self.selected_interval = tk.StringVar(value="1500")
         self.tray_icon = None
         self.icon_path = None
@@ -64,6 +51,10 @@ class KeepAliveApp:
         self.inaudible_tone_data = self.generate_inaudible_tone()
         self.beep_tone_data = self.generate_beep()
         self.ting_tong_data = self.generate_ting_tong()
+        self.recent_play_time = 0
+        self.audio_sessions = None
+
+        self.refresh_audio_session()
 
         # Frame for Interval Label and Combobox
         interval_frame = tk.Frame(root)
@@ -72,9 +63,9 @@ class KeepAliveApp:
         interval_label = tk.Label(interval_frame, text="Interval (seconds):")
         interval_label.pack(side='left')
 
-        interval_menu = ttk.Combobox(interval_frame, textvariable=self.selected_interval,
-                                     values=[str(i) for i in self.intervals], state="readonly", width=10)
-        interval_menu.pack(side='left', padx=10)  # Add padx to separate label and combobox
+        self.interval_menu = ttk.Combobox(interval_frame, textvariable=self.selected_interval,
+                                          values=[str(i) for i in self.intervals], state="readonly", width=10)
+        self.interval_menu.pack(side='left', padx=10)  # Add padx to separate label and combobox
 
         button_frame = tk.Frame(root)
         button_frame.pack(pady=10)
@@ -92,11 +83,22 @@ class KeepAliveApp:
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
+    def refresh_audio_session(self):
+        def _refresh():
+            while True:
+                CoInitialize()
+                self.audio_sessions = AudioUtilities.GetAllSessions()
+                if self.is_any_audio_playing_pycaw():
+                    self.recent_play_time = time.time()
+                time.sleep(60)
+
+        threading.Thread(target=_refresh, daemon=True).start()
+
     def is_any_audio_playing_pycaw(self):
         """Check any sound is playing in the system. Only on Windows"""
-        if audio_sessions:
+        if self.audio_sessions:
             # noinspection PyTypeChecker
-            for session in audio_sessions:
+            for session in self.audio_sessions:
                 try:
                     if session.State == 1:  # State 1 is "Active"
                         return True
@@ -179,23 +181,27 @@ class KeepAliveApp:
             p.terminate()
 
     def playback_loop(self):
-        interval = int(self.selected_interval.get())
+        default_interval = int(self.selected_interval.get())
+        interval = default_interval
         while self.is_running and not self.stop_event.is_set():
             if not self.is_any_audio_playing_pycaw():
-                if not self.play_audio(self.ting_tong_data, channels=1):
-                    self.stop_event.wait(timeout=5)  # Wait 5 seconds before retry
-                    continue
+                if time.time() - self.recent_play_time >= interval:
+                    if not self.play_audio(self.ting_tong_data, channels=1):
+                        self.stop_event.wait(timeout=5)  # Wait 5 seconds before retry
+                        continue
+                    else:
+                        self.recent_play_time = time.time()
+            else:
+                self.recent_play_time = time.time()
+            interval = default_interval if not self.recent_play_time else \
+                int(((self.recent_play_time + default_interval) - time.time()))
             for remaining_time in range(interval, -1, -1):
                 self.status_label_text.set(f"Next playback in {remaining_time} seconds.")
                 if self.stop_event.is_set():
                     break
                 time.sleep(1)
             if not self.stop_event.is_set():
-                if not self.is_any_audio_playing_pycaw():
-                    self.status_label_text.set("Playing sound...")
-                else:
-                    self.status_label_text.set("Audio is playing...")
-                    time.sleep(1)
+                self.status_label_text.set("Playing sound...")
             else:
                 self.status_label_text.set("Playback stopped.")
 
@@ -205,9 +211,9 @@ class KeepAliveApp:
             self.stop_event.clear()
             self.start_button.config(state="disabled")
             self.stop_button.config(state="normal")
+            self.interval_menu.config(state='disabled')
             self.thread = threading.Thread(target=self.playback_loop, daemon=True)
             self.thread.start()
-            print(f"Started audio playback every {self.selected_interval.get()} seconds.")
             self.status_label_text.set("Starting playback...")
 
     def stop_playback(self):
@@ -219,7 +225,7 @@ class KeepAliveApp:
                 self.thread = None
             self.start_button.config(state="normal")
             self.stop_button.config(state="disabled")
-            print("Stopped audio playback.")
+            self.interval_menu.config(state='!disabled')
             self.status_label_text.set("Playback stopped.")
 
     def create_tray_icon(self):
@@ -321,7 +327,6 @@ class KeepAliveApp:
 
 
 if __name__ == "__main__":
-    refresh_audio_session()
     root = tk.Tk()
     app = KeepAliveApp(root)
     root.mainloop()
